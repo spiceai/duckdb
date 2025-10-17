@@ -26,6 +26,8 @@ idx_t ArrowStructInfo::ChildCount() const {
 }
 
 ArrowStructInfo::~ArrowStructInfo() {
+	// Explicitly clear children to break circular references
+	children.clear();
 }
 
 const ArrowType &ArrowStructInfo::GetChild(idx_t index) const {
@@ -101,6 +103,8 @@ ArrowListInfo::ArrowListInfo(shared_ptr<ArrowType> child, ArrowVariableSizeType 
 }
 
 ArrowListInfo::~ArrowListInfo() {
+	// Explicitly clear child to break circular references
+	child.reset();
 }
 
 unique_ptr<ArrowListInfo> ArrowListInfo::ListView(shared_ptr<ArrowType> child, ArrowVariableSizeType size) {
@@ -137,6 +141,8 @@ ArrowArrayInfo::ArrowArrayInfo(shared_ptr<ArrowType> child, idx_t fixed_size)
 }
 
 ArrowArrayInfo::~ArrowArrayInfo() {
+	// Explicitly clear child to break circular references
+	child.reset();
 }
 
 idx_t ArrowArrayInfo::FixedSize() const {
