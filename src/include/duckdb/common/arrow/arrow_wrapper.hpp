@@ -28,10 +28,10 @@ public:
 	ArrowArray arrow_array;
 	ArrowArrayWrapper() {
 		arrow_array.length = 0;
-		arrow_array.release = nullptr;
+		// arrow_array.release = nullptr;
 	}
 	ArrowArrayWrapper(ArrowArrayWrapper &&other) noexcept : arrow_array(other.arrow_array) {
-		other.arrow_array.release = nullptr;
+		// other.arrow_array.release = nullptr;
 	}
 	~ArrowArrayWrapper();
 };
@@ -50,7 +50,7 @@ public:
 
 	virtual ~ArrowArrayStreamWrapper();
 	ArrowArrayStreamWrapper() {
-		arrow_array_stream.release = nullptr;
+		// arrow_array_stream.release = nullptr;
 	}
 };
 
