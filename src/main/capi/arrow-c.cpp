@@ -3,7 +3,6 @@
 #include "duckdb/function/table/arrow.hpp"
 #include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/prepared_statement_data.hpp"
-#include <iostream>
 
 using duckdb::ArrowConverter;
 using duckdb::ArrowResultWrapper;
@@ -248,7 +247,13 @@ const char *GetLastError(struct ArrowArrayStream *stream) {
 
 void Release(struct ArrowArrayStream *stream) {
 	if (stream->private_data != nullptr) {
-		delete reinterpret_cast<PrivateData *>(stream->private_data);
+		auto private_data = reinterpret_cast<PrivateData *>(stream->private_data);
+		if (private_data->schema && private_data->schema->release) {
+			private_data->schema->release(private_data->schema);
+			private_data->schema = nullptr;
+		}
+
+		delete private_data;
 	}
 
 	stream->private_data = nullptr;
@@ -257,7 +262,6 @@ void Release(struct ArrowArrayStream *stream) {
 
 duckdb_state Ingest(duckdb_connection connection, const char *table_name, struct ArrowArrayStream *input) {
 	try {
-		std::cout << "DEBUG: creating arrow scan table function" << std::endl;
 		auto cconn = reinterpret_cast<duckdb::Connection *>(connection);
 		cconn
 		    ->TableFunction("arrow_scan", {duckdb::Value::POINTER((uintptr_t)input),
@@ -286,7 +290,6 @@ duckdb_state duckdb_arrow_scan(duckdb_connection connection, const char *table_n
 		return DuckDBError;
 	}
 
-	std::cout << "DEBUG: ingesting arrow array stream into table '" << table_name << "'" << std::endl;
 	return arrow_array_stream_wrapper::Ingest(connection, table_name, stream);
 }
 
@@ -303,13 +306,11 @@ duckdb_state duckdb_arrow_array_scan(duckdb_connection connection, const char *t
 		return DuckDBError;
 	}
 
-	std::cout << "DEBUG: building private data for arrow array stream" << std::endl;
 	auto private_data = new arrow_array_stream_wrapper::PrivateData;
 	private_data->schema = reinterpret_cast<ArrowSchema *>(arrow_schema);
 	private_data->array = reinterpret_cast<ArrowArray *>(arrow_array);
 	private_data->done = false;
 
-	std::cout << "DEBUG: creating arrow array stream" << std::endl;
 	ArrowArrayStream *stream = new ArrowArrayStream;
 	*out_stream = reinterpret_cast<duckdb_arrow_stream>(stream);
 	stream->get_schema = arrow_array_stream_wrapper::GetSchema;
@@ -318,6 +319,5 @@ duckdb_state duckdb_arrow_array_scan(duckdb_connection connection, const char *t
 	stream->release = arrow_array_stream_wrapper::Release;
 	stream->private_data = private_data;
 
-	std::cout << "DEBUG: ingesting arrow array stream into table '" << table_name << "'" << std::endl;
 	return duckdb_arrow_scan(connection, table_name, reinterpret_cast<duckdb_arrow_stream>(stream));
 }

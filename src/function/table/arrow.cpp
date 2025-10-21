@@ -14,7 +14,6 @@
 #include "duckdb/parser/tableref/table_function_ref.hpp"
 #include "utf8proc_wrapper.hpp"
 #include "duckdb/common/arrow/schema_metadata.hpp"
-#include <iostream>
 
 namespace duckdb {
 
@@ -22,15 +21,12 @@ void ArrowTableFunction::PopulateArrowTableType(DBConfig &config, ArrowTableType
                                                 const ArrowSchemaWrapper &schema_p, vector<string> &names,
                                                 vector<LogicalType> &return_types) {
 	for (idx_t col_idx = 0; col_idx < static_cast<idx_t>(schema_p.arrow_schema.n_children); col_idx++) {
-		std::cout << "DEBUG: processing column index " << col_idx << std::endl;
 		if (schema_p.arrow_schema.children[col_idx] == nullptr) {
 			throw InvalidInputException("arrow_scan: null schema pointer for column %d", col_idx);
 		}
 
 		auto &schema = *schema_p.arrow_schema.children[col_idx];
-		std::cout << "DEBUG: column name: '" << schema.name << "'" << std::endl;
 		if (!schema.release) {
-			std::cout << "DEBUG: released schema passed" << std::endl;
 			throw InvalidInputException("arrow_scan: released schema passed");
 		}
 		auto arrow_type = ArrowType::GetArrowLogicalType(config, schema);
@@ -75,18 +71,14 @@ unique_ptr<FunctionData> ArrowTableFunction::ArrowScanBind(ClientContext &contex
 	auto res = make_uniq<ArrowScanFunctionData>(stream_factory_produce, stream_factory_ptr, std::move(dependency));
 
 	auto &data = *res;
-	std::cout << "DEBUG: retrieving arrow schema from stream factory" << std::endl;
 	stream_factory_get_schema(reinterpret_cast<ArrowArrayStream *>(stream_factory_ptr), data.schema_root.arrow_schema);
-	std::cout << "DEBUG: populating arrow table type from schema" << std::endl;
 	PopulateArrowTableType(DBConfig::GetConfig(context), res->arrow_table, data.schema_root, names, return_types);
-	std::cout << "DEBUG: deduplicating column names" << std::endl;
 	QueryResult::DeduplicateColumns(names);
 	res->all_types = return_types;
 	if (return_types.empty()) {
 		throw InvalidInputException("Provided table/dataframe must have at least one column");
 	}
 
-	std::cout << "DEBUG: completed arrow scan bind" << std::endl;
 	return std::move(res);
 }
 
@@ -183,7 +175,6 @@ unique_ptr<LocalTableFunctionState> ArrowTableFunction::ArrowScanInitLocal(Execu
 }
 
 void ArrowTableFunction::ArrowScanFunction(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
-	std::cout << "DEBUG: starting arrow scan function" << std::endl;
 	if (!data_p.local_state) {
 		return;
 	}
