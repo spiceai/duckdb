@@ -490,36 +490,38 @@ vector<unique_ptr<Expression>> ExtractFilterExpressions(const ColumnDefinition &
 // Recursively updates column bindings in an index expression to match the current input projection,
 // even if they are the child of a function or cast
 void UpdateIndexExprColumnBindings(unique_ptr<Expression> &expr, const vector<column_t> &input_column_ids,
-						  		   const vector<column_t> &indexed_columns) {
-	if (!expr) { return; }
+                                   const vector<column_t> &indexed_columns) {
+	if (!expr) {
+		return;
+	}
 
 	switch (expr->GetExpressionClass()) {
-		case ExpressionClass::BOUND_COLUMN_REF: {
-			auto &bound_column_ref_expr = expr->Cast<BoundColumnRefExpression>();
+	case ExpressionClass::BOUND_COLUMN_REF: {
+		auto &bound_column_ref_expr = expr->Cast<BoundColumnRefExpression>();
 
-			for (idx_t i=0; i < input_column_ids.size(); ++i) {
-				if (input_column_ids[i] == indexed_columns[0]) {
-					bound_column_ref_expr.binding.column_index = i;
-					break;
-				}
+		for (idx_t i = 0; i < input_column_ids.size(); ++i) {
+			if (input_column_ids[i] == indexed_columns[0]) {
+				bound_column_ref_expr.binding.column_index = i;
+				break;
 			}
-			break;
 		}
-		case ExpressionClass::BOUND_FUNCTION: {
-			auto &func_expr = expr->Cast<BoundFunctionExpression>();
-			for (auto &child : func_expr.children) {
-				UpdateIndexExprColumnBindings(child, input_column_ids, indexed_columns);
-			}
-			break;
+		break;
+	}
+	case ExpressionClass::BOUND_FUNCTION: {
+		auto &func_expr = expr->Cast<BoundFunctionExpression>();
+		for (auto &child : func_expr.children) {
+			UpdateIndexExprColumnBindings(child, input_column_ids, indexed_columns);
 		}
-		// TODO: never end up here, TableScanInitGlobal called without filters in input
-		// case ExpressionClass::BOUND_CAST: {
-		// 	auto &cast_expr = expr->Cast<BoundCastExpression>();
-		// 	UpdateIndexExprColumnBindings(cast_expr.child, input_column_ids, indexed_columns);
-		// 	break;
-		// }
-		default:
-			break;
+		break;
+	}
+	// TODO: never end up here, TableScanInitGlobal called without filters in input
+	// case ExpressionClass::BOUND_CAST: {
+	// 	auto &cast_expr = expr->Cast<BoundCastExpression>();
+	// 	UpdateIndexExprColumnBindings(cast_expr.child, input_column_ids, indexed_columns);
+	// 	break;
+	// }
+	default:
+		break;
 	}
 }
 
