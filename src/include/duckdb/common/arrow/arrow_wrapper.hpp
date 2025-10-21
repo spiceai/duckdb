@@ -17,7 +17,8 @@ class ArrowSchemaWrapper {
 public:
 	ArrowSchema arrow_schema;
 
-	ArrowSchemaWrapper() {}
+	ArrowSchemaWrapper() {
+	}
 
 	~ArrowSchemaWrapper();
 };
