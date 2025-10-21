@@ -16,10 +16,10 @@
 namespace duckdb {
 
 ArrowSchemaWrapper::~ArrowSchemaWrapper() {
-	// if (arrow_schema.release) {
-	// 	arrow_schema.release(&arrow_schema);
-	// 	D_ASSERT(!arrow_schema.release);
-	// }
+	if (arrow_schema.release) {
+		arrow_schema.release(&arrow_schema);
+		D_ASSERT(!arrow_schema.release);
+	}
 }
 
 ArrowArrayWrapper::~ArrowArrayWrapper() {
