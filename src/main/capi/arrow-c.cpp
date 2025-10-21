@@ -203,12 +203,6 @@ void EmptyStreamRelease(ArrowArrayStream *stream) {
 
 void FactoryGetSchema(ArrowArrayStream *stream, ArrowSchema &schema) {
 	stream->get_schema(stream, &schema);
-
-	// Need to nullify the root schema's release function here, because streams don't allow us to set the release
-	// function. For the schema's children, we nullify the release functions in `duckdb_arrow_scan`, so we don't need to
-	// handle them again here. We set this to nullptr and not EmptySchemaRelease to prevent ArrowSchemaWrapper's
-	// destructor from destroying the schema (it's the caller's responsibility).
-	schema.release = nullptr;
 }
 
 int GetSchema(struct ArrowArrayStream *stream, struct ArrowSchema *out) {
@@ -218,7 +212,6 @@ int GetSchema(struct ArrowArrayStream *stream, struct ArrowSchema *out) {
 	}
 
 	*out = *private_data->schema;
-	out->release = EmptySchemaRelease;
 	return DuckDBSuccess;
 }
 
@@ -254,7 +247,13 @@ const char *GetLastError(struct ArrowArrayStream *stream) {
 
 void Release(struct ArrowArrayStream *stream) {
 	if (stream->private_data != nullptr) {
-		delete reinterpret_cast<PrivateData *>(stream->private_data);
+		auto private_data = reinterpret_cast<PrivateData *>(stream->private_data);
+		if (private_data->schema && private_data->schema->release) {
+			private_data->schema->release(private_data->schema);
+			private_data->schema = nullptr;
+		}
+
+		delete private_data;
 	}
 
 	stream->private_data = nullptr;

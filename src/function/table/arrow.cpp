@@ -21,6 +21,10 @@ void ArrowTableFunction::PopulateArrowTableType(DBConfig &config, ArrowTableType
                                                 const ArrowSchemaWrapper &schema_p, vector<string> &names,
                                                 vector<LogicalType> &return_types) {
 	for (idx_t col_idx = 0; col_idx < static_cast<idx_t>(schema_p.arrow_schema.n_children); col_idx++) {
+		if (schema_p.arrow_schema.children[col_idx] == nullptr) {
+			throw InvalidInputException("arrow_scan: null schema pointer for column %d", col_idx);
+		}
+
 		auto &schema = *schema_p.arrow_schema.children[col_idx];
 		if (!schema.release) {
 			throw InvalidInputException("arrow_scan: released schema passed");
@@ -74,6 +78,7 @@ unique_ptr<FunctionData> ArrowTableFunction::ArrowScanBind(ClientContext &contex
 	if (return_types.empty()) {
 		throw InvalidInputException("Provided table/dataframe must have at least one column");
 	}
+
 	return std::move(res);
 }
 
