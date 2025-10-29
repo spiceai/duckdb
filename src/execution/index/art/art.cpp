@@ -1,5 +1,7 @@
 #include "duckdb/execution/index/art/art.hpp"
 
+#include "duckdb/common/helper.hpp"
+#include "duckdb/common/typedefs.hpp"
 #include "duckdb/common/types/conflict_manager.hpp"
 #include "duckdb/common/unordered_map.hpp"
 #include "duckdb/common/vector_operations/vector_operations.hpp"
@@ -34,6 +36,17 @@ struct ARTIndexScanState : public IndexScanState {
 	Value values[2];
 	//! The expressions over the scan predicates.
 	ExpressionType expressions[2];
+	bool checked = false;
+	//! All scanned row IDs.
+	set<row_t> row_ids;
+};
+
+struct ARTIndexCompoundKeyScanState : public IndexScanState {
+	//! The predicates to scan.
+	//! A single predicate for each constituent key in a compound index.
+	vector<Value> values;
+	//! The expressions over the scan predicates.
+	vector<ExpressionType> expressions;
 	bool checked = false;
 	//! All scanned row IDs.
 	set<row_t> row_ids;
@@ -140,6 +153,34 @@ static unique_ptr<IndexScanState> InitializeScanTwoPredicates(const Value &low_v
 	result->values[1] = high_value;
 	result->expressions[1] = high_expression_type;
 	return std::move(result);
+}
+
+// Build compound scan state by building individual index scans and collecting their exprs/values
+unique_ptr<IndexScanState> ART::TryInitializeCompoundKeyScan(const vector<unique_ptr<Expression>> &index_exprs,
+                                                             vector<vector<unique_ptr<Expression>>> &exprs) {
+	auto compound_scan_state = make_uniq<ARTIndexCompoundKeyScanState>();
+
+	for (idx_t i = 0; i < index_exprs.size(); ++i) {
+		auto index_expr = &index_exprs[i];
+		auto filter_exprs = &exprs[i];
+
+		for (const auto &filter_expr : *filter_exprs) {
+			auto single_scan = ART::TryInitializeScan(**index_expr, *filter_expr);
+			if (!single_scan) {
+				return nullptr;
+			}
+
+			auto single_scan_concrete = single_scan->Cast<ARTIndexScanState>();
+			if (single_scan_concrete.expressions[0] != ExpressionType::COMPARE_EQUAL) {
+				return nullptr;
+			}
+
+			compound_scan_state->values.push_back(single_scan_concrete.values[0]);
+			compound_scan_state->expressions.push_back(single_scan_concrete.expressions[0]);
+		}
+	}
+
+	return compound_scan_state;
 }
 
 unique_ptr<IndexScanState> ART::TryInitializeScan(const Expression &expr, const Expression &filter_expr) {
@@ -673,6 +714,23 @@ bool ART::SearchCloseRange(ARTKey &lower_bound, ARTKey &upper_bound, bool left_e
 
 	// Continue the scan until we reach the upper bound.
 	return it.Scan(upper_bound, max_count, row_ids, right_equal);
+}
+
+bool ART::CompoundKeyScan(IndexScanState &state, const idx_t max_count, set<row_t> &row_ids) {
+	auto &scan_state = state.Cast<ARTIndexCompoundKeyScanState>();
+	D_ASSERT(scan_state.values.size() == types.size());
+
+	ArenaAllocator arena_allocator(Allocator::Get(db));
+
+	// Make a compound key from the collected state values
+	auto compound_key = ARTKey::CreateKey(arena_allocator, types[0], scan_state.values[0]);
+	for (idx_t i = 1; i < scan_state.values.size(); ++i) {
+		auto part_key = ARTKey::CreateKey(arena_allocator, types[i], scan_state.values[i]);
+		compound_key.Concat(arena_allocator, part_key);
+	}
+
+	lock_guard<mutex> l(lock);
+	return SearchEqual(compound_key, max_count, row_ids);
 }
 
 bool ART::Scan(IndexScanState &state, const idx_t max_count, set<row_t> &row_ids) {
