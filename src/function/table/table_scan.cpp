@@ -488,7 +488,11 @@ vector<unique_ptr<Expression>> ExtractFilterExpressions(const ColumnDefinition &
 
 bool TryScanIndex(ART &art, const ColumnList &column_list, TableFunctionInitInput &input, TableFilterSet &filter_set,
                   idx_t max_count, set<row_t> &row_ids) {
-	auto &index_exprs = art.unbound_expressions;
+	vector<unique_ptr<Expression>> index_exprs;
+	for (const auto &expr : art.unbound_expressions) {
+		index_exprs.push_back(expr->Copy());
+	}
+
 	auto &indexed_columns = art.GetColumnIds();
 
 	// Allow composite ART scans
