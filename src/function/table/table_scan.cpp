@@ -30,7 +30,9 @@
 #include "duckdb/planner/filter/conjunction_filter.hpp"
 #include "duckdb/common/types/value_map.hpp"
 #include "duckdb/main/settings.hpp"
+#include <limits>
 #include <list>
+#include <utility>
 
 namespace duckdb {
 
@@ -486,86 +488,124 @@ vector<unique_ptr<Expression>> ExtractFilterExpressions(const ColumnDefinition &
 
 bool TryScanIndex(ART &art, const ColumnList &column_list, TableFunctionInitInput &input, TableFilterSet &filter_set,
                   idx_t max_count, set<row_t> &row_ids) {
-	// FIXME: No support for index scans on compound ARTs.
-	// See note above on multi-filter support.
-	if (art.unbound_expressions.size() > 1) {
+	auto &index_exprs = art.unbound_expressions;
+	auto &indexed_columns = art.GetColumnIds();
+
+	// Allow composite ART scans
+	if (indexed_columns.size() != index_exprs.size()) {
 		return false;
 	}
 
-	auto index_expr = art.unbound_expressions[0]->Copy();
-	auto &indexed_columns = art.GetColumnIds();
-
+	// ...only if each expression is a column ref (for value assertions)
 	// NOTE: We do not push down multi-column filters, e.g., 42 = a + b.
-	if (indexed_columns.size() != 1) {
-		return false;
+	for (const auto &expr : index_exprs) {
+		if (expr->GetExpressionClass() != ExpressionClass::BOUND_COLUMN_REF) {
+			return false;
+		}
+	}
+
+	// TODO: can't tell if this is guaranteed?
+	for (idx_t i = 0; i < index_exprs.size(); i++) {
+		auto &expr = index_exprs[i]->Cast<BoundColumnRefExpression>();
+		if (expr.binding.column_index != indexed_columns[i]) {
+			return false;
+		}
 	}
 
 	// Resolve bound column references in the index_expr against the current input projection
-	column_t updated_index_column;
+	vector<column_t> updated_index_columns;
+	updated_index_columns.resize(indexed_columns.size(), std::numeric_limits<idx_t>::max());
+
 	bool found_index_column_in_input = false;
 
-	// Find the indexed column amongst the input columns
-	for (idx_t i = 0; i < input.column_ids.size(); ++i) {
-		if (input.column_ids[i] == indexed_columns[0]) {
-			updated_index_column = i;
-			found_index_column_in_input = true;
-			break;
+	// Associate indexed columns to input columns
+	for (idx_t i = 0; i < indexed_columns.size(); ++i) {
+		for (idx_t j = 0; j < input.column_ids.size(); ++j) {
+			if (indexed_columns[i] == input.column_ids[j]) {
+				updated_index_columns.at(i) = j;
+				found_index_column_in_input = true;
+			}
 		}
 	}
 
-	// If found, update the bound column ref within index_expr
+	// If found, update the bound column refs within all index_exprs
 	if (found_index_column_in_input) {
-		ExpressionIterator::EnumerateExpression(index_expr, [&](Expression &expr) {
-			if (expr.GetExpressionClass() != ExpressionClass::BOUND_COLUMN_REF) {
-				return;
-			}
+		for (auto &index_expr : index_exprs) {
+			ExpressionIterator::EnumerateExpression(index_expr, [&](Expression &expr) {
+				if (expr.GetExpressionClass() != ExpressionClass::BOUND_COLUMN_REF) {
+					return;
+				}
 
-			auto &bound_column_ref_expr = expr.Cast<BoundColumnRefExpression>();
+				auto &bound_column_ref_expr = expr.Cast<BoundColumnRefExpression>();
 
-			// If the bound column references the index column, use updated_index_column
-			if (bound_column_ref_expr.binding.column_index == indexed_columns[0]) {
-				bound_column_ref_expr.binding.column_index = updated_index_column;
-			}
-		});
+				// If the bound column references an indexed column, update it
+				for (idx_t i = 0; i < indexed_columns.size(); ++i) {
+					if (bound_column_ref_expr.binding.column_index == indexed_columns[i]) {
+						bound_column_ref_expr.binding.column_index = updated_index_columns[i];
+						break;
+					}
+				}
+			});
+		}
 	}
 
-	// Get ART column.
-	auto &col = column_list.GetColumn(LogicalIndex(indexed_columns[0]));
+	// Get ART columns
+	vector<const ColumnDefinition *> indexed_column_defs;
+	for (idx_t i = 0; i < indexed_columns.size(); ++i) {
+		indexed_column_defs.push_back(&column_list.GetColumn(LogicalIndex(indexed_columns[i])));
+	}
 
 	// The indexes of the filters match input.column_indexes, which are: i -> column_index.
 	// Try to find a filter on the ART column.
-	optional_idx storage_index;
-	for (idx_t i = 0; i < input.column_indexes.size(); i++) {
-		if (input.column_indexes[i].ToLogical() == col.Logical()) {
-			storage_index = i;
-			break;
+	vector<vector<unique_ptr<Expression>>> filters;
+
+	for (idx_t i = 0; i < input.column_indexes.size(); ++i) {
+		for (idx_t j = 0; j < indexed_column_defs.size(); ++j) {
+			if (input.column_indexes[i].ToLogical() == indexed_column_defs[j]->Logical()) {
+				auto maybe_filter = filter_set.filters.find(i);
+				if (maybe_filter != filter_set.filters.end()) {
+					auto filter = &maybe_filter->second;
+					auto filter_expressions = ExtractFilterExpressions(*indexed_column_defs[j], *filter, i);
+
+					filters.push_back(std::move(filter_expressions));
+				}
+			}
 		}
 	}
 
-	// No filter matches the ART column.
-	if (!storage_index.IsValid()) {
+	// Filters must match ART columns 1:1
+	if (filters.size() != indexed_column_defs.size() || filters.empty()) {
 		return false;
 	}
 
-	// Try to find a matching filter for the column.
-	auto filter = filter_set.filters.find(storage_index.GetIndex());
-	if (filter == filter_set.filters.end()) {
-		return false;
-	}
-
-	auto expressions = ExtractFilterExpressions(col, filter->second, storage_index.GetIndex());
-	for (const auto &filter_expr : expressions) {
-		auto scan_state = art.TryInitializeScan(*index_expr, *filter_expr);
+	// Do a compound scan if we have filter exprs bound for several columns
+	if (filters.size() > 1) {
+		auto scan_state = art.TryInitializeCompoundKeyScan(index_exprs, filters);
 		if (!scan_state) {
 			return false;
 		}
 
-		// Check if we can use an index scan, and already retrieve the matching row ids.
-		if (!art.Scan(*scan_state, max_count, row_ids)) {
+		if (!art.CompoundKeyScan(*scan_state, max_count, row_ids)) {
 			row_ids.clear();
 			return false;
 		}
 	}
+	// Original single column index scan
+	else {
+		for (const auto &filter_expr : filters[0]) {
+			auto scan_state = art.TryInitializeScan(*index_exprs[0], *filter_expr);
+			if (!scan_state) {
+				return false;
+			}
+
+			// Check if we can use an index scan, and already retrieve the matching row ids.
+			if (!art.Scan(*scan_state, max_count, row_ids)) {
+				row_ids.clear();
+				return false;
+			}
+		}
+	}
+
 	return true;
 }
 
@@ -588,9 +628,9 @@ unique_ptr<GlobalTableFunctionState> TableScanInitGlobal(ClientContext &context,
 	//		1.2. Find + scan one ART for b = 24.
 	//		1.3. Return the intersecting row IDs.
 	// 2. (Reorder and) scan a single ART with a compound key of (a, b).
-	if (filter_set.filters.size() != 1) {
-		return DuckTableScanInitGlobal(context, input, storage, bind_data);
-	}
+	// if (filter_set.filters.size() != 1) {
+	// 	return DuckTableScanInitGlobal(context, input, storage, bind_data);
+	// }
 
 	// The checkpoint lock ensures that we do not checkpoint while scanning this table.
 	auto &transaction = DuckTransaction::Get(context, storage.db);
