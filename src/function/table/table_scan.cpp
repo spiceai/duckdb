@@ -500,25 +500,29 @@ bool TryScanIndex(ART &art, const ColumnList &column_list, TableFunctionInitInpu
 		return false;
 	}
 
-	// ...only if each expression is a column ref (for value assertions)
+	// ...only if each expression has a single column reference, and
+	// that single column reference positionally matches that of the index (this is guaranteed? paranoid?)
 	// NOTE: We do not push down multi-column filters, e.g., 42 = a + b.
-	for (const auto &expr : index_exprs) {
-		if (expr->GetExpressionClass() != ExpressionClass::BOUND_COLUMN_REF) {
-			return false;
-		}
-	}
+	for (idx_t i = 0; i < index_exprs.size(); ++i) {
+		unordered_set<column_t> referenced_columns;
+		auto expr = &index_exprs[i];
 
-	// TODO: can't tell if this is guaranteed?
-	for (idx_t i = 0; i < index_exprs.size(); i++) {
-		auto &expr = index_exprs[i]->Cast<BoundColumnRefExpression>();
-		if (expr.binding.column_index != indexed_columns[i]) {
+		// Walk the expr in case of nesting (e.g. function)
+		ExpressionIterator::EnumerateExpression(*expr, [&](Expression &child_expr) {
+			if (child_expr.GetExpressionClass() == ExpressionClass::BOUND_COLUMN_REF) {
+				auto &col_ref = child_expr.Cast<BoundColumnRefExpression>();
+				referenced_columns.insert(col_ref.binding.column_index);
+			}
+		});
+
+		if (referenced_columns.size() != 1 || *referenced_columns.begin() != indexed_columns[i]) {
 			return false;
 		}
 	}
 
 	// Resolve bound column references in the index_expr against the current input projection
-	vector<column_t> updated_index_columns;
-	updated_index_columns.resize(indexed_columns.size(), std::numeric_limits<idx_t>::max());
+	vector<column_t> index_column_to_proj_pos;
+	index_column_to_proj_pos.resize(indexed_columns.size(), std::numeric_limits<idx_t>::max());
 
 	bool found_index_column_in_input = false;
 
@@ -526,7 +530,7 @@ bool TryScanIndex(ART &art, const ColumnList &column_list, TableFunctionInitInpu
 	for (idx_t i = 0; i < indexed_columns.size(); ++i) {
 		for (idx_t j = 0; j < input.column_ids.size(); ++j) {
 			if (indexed_columns[i] == input.column_ids[j]) {
-				updated_index_columns.at(i) = j;
+				index_column_to_proj_pos.at(i) = j;
 				found_index_column_in_input = true;
 			}
 		}
@@ -545,7 +549,7 @@ bool TryScanIndex(ART &art, const ColumnList &column_list, TableFunctionInitInpu
 				// If the bound column references an indexed column, update it
 				for (idx_t i = 0; i < indexed_columns.size(); ++i) {
 					if (bound_column_ref_expr.binding.column_index == indexed_columns[i]) {
-						bound_column_ref_expr.binding.column_index = updated_index_columns[i];
+						bound_column_ref_expr.binding.column_index = index_column_to_proj_pos[i];
 						break;
 					}
 				}
@@ -553,32 +557,23 @@ bool TryScanIndex(ART &art, const ColumnList &column_list, TableFunctionInitInpu
 		}
 	}
 
-	// Get ART columns
-	vector<const ColumnDefinition *> indexed_column_defs;
-	for (idx_t i = 0; i < indexed_columns.size(); ++i) {
-		indexed_column_defs.push_back(&column_list.GetColumn(LogicalIndex(indexed_columns[i])));
-	}
-
 	// The indexes of the filters match input.column_indexes, which are: i -> column_index.
-	// Try to find a filter on the ART column.
+	// Reuse the index <-> projection mappings from index expr rebinding
 	vector<vector<unique_ptr<Expression>>> filters;
 
-	for (idx_t i = 0; i < input.column_indexes.size(); ++i) {
-		for (idx_t j = 0; j < indexed_column_defs.size(); ++j) {
-			if (input.column_indexes[i].ToLogical() == indexed_column_defs[j]->Logical()) {
-				auto maybe_filter = filter_set.filters.find(i);
-				if (maybe_filter != filter_set.filters.end()) {
-					auto filter = &maybe_filter->second;
-					auto filter_expressions = ExtractFilterExpressions(*indexed_column_defs[j], *filter, i);
+	for (idx_t i = 0; i < index_column_to_proj_pos.size(); ++i) {
+		auto column_def = &column_list.GetColumn(LogicalIndex(indexed_columns[i]));
+		auto maybe_filter = filter_set.filters.find(index_column_to_proj_pos[i]);
+		if (maybe_filter != filter_set.filters.end()) {
+			auto filter = &maybe_filter->second;
+			auto filter_expressions = ExtractFilterExpressions(*column_def, *filter, index_column_to_proj_pos[i]);
 
-					filters.push_back(std::move(filter_expressions));
-				}
-			}
+			filters.push_back(std::move(filter_expressions));
 		}
 	}
 
 	// Filters must match ART columns 1:1
-	if (filters.size() != indexed_column_defs.size() || filters.empty()) {
+	if (filters.size() != indexed_columns.size() || filters.empty()) {
 		return false;
 	}
 
