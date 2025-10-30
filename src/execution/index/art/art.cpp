@@ -1,5 +1,6 @@
 #include "duckdb/execution/index/art/art.hpp"
 
+#include "duckdb/common/assert.hpp"
 #include "duckdb/common/helper.hpp"
 #include "duckdb/common/typedefs.hpp"
 #include "duckdb/common/types/conflict_manager.hpp"
@@ -718,7 +719,14 @@ bool ART::SearchCloseRange(ARTKey &lower_bound, ARTKey &upper_bound, bool left_e
 
 bool ART::CompoundKeyScan(IndexScanState &state, const idx_t max_count, set<row_t> &row_ids) {
 	auto &scan_state = state.Cast<ARTIndexCompoundKeyScanState>();
-	D_ASSERT(scan_state.values.size() == types.size());
+
+	if (scan_state.values.size() != types.size()) {
+		return false;
+	}
+
+	for (idx_t i = 0; i < scan_state.values.size(); ++i) {
+		D_ASSERT(scan_state.values[i].type().InternalType() == types[i]);
+	}
 
 	ArenaAllocator arena_allocator(Allocator::Get(db));
 

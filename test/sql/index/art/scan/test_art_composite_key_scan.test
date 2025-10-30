@@ -1,0 +1,25 @@
+# name: test/sql/index/art/issues/test_art_view_col_binding.test
+# description: Test Index Scan push down against views with reordered projections (issue #17290)
+# group: [issues]
+
+statement ok
+create or replace table test as (
+    select
+        cast(unnest(range(1000)) as varchar) as x,
+        cast(unnest(range(2000,3000)) as varchar) as y,
+        cast(unnest(range(3000,4000)) as varchar) as z
+);
+
+# test simple permutation of initial table projection
+statement ok
+create index test_composite_key on test(x, y, z);
+
+query II
+explain analyze select * from test where x = '525' and y = '2525' and z = '3525';
+----
+analyzed_plan	<REGEX>:.*Index Scan.*
+
+query III
+select * from test where x = '525' and y = '2525' and z = '3525';
+----
+525	2525	3525
