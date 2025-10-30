@@ -536,30 +536,38 @@ bool TryScanIndex(ART &art, const ColumnList &column_list, TableFunctionInitInpu
 		}
 	}
 
-	// If found, update the bound column refs within all index_exprs
-	if (found_index_column_in_input) {
-		for (auto &index_expr : index_exprs) {
-			ExpressionIterator::EnumerateExpression(index_expr, [&](Expression &expr) {
-				if (expr.GetExpressionClass() != ExpressionClass::BOUND_COLUMN_REF) {
-					return;
-				}
+	if (!found_index_column_in_input) {
+		return false;
+	}
 
-				auto &bound_column_ref_expr = expr.Cast<BoundColumnRefExpression>();
-
-				// If the bound column references an indexed column, update it
-				for (idx_t i = 0; i < indexed_columns.size(); ++i) {
-					if (bound_column_ref_expr.binding.column_index == indexed_columns[i]) {
-						bound_column_ref_expr.binding.column_index = index_column_to_proj_pos[i];
-						break;
-					}
-				}
-			});
+	for (auto col : index_column_to_proj_pos) {
+		if (col == std::numeric_limits<idx_t>::max()) {
+			return false;
 		}
+	}
+
+	// Update the bound column refs within all index_exprs
+	for (auto &index_expr : index_exprs) {
+		ExpressionIterator::EnumerateExpression(index_expr, [&](Expression &expr) {
+			if (expr.GetExpressionClass() != ExpressionClass::BOUND_COLUMN_REF) {
+				return;
+			}
+
+			auto &bound_column_ref_expr = expr.Cast<BoundColumnRefExpression>();
+
+			// If the bound column references an indexed column, update it
+			for (idx_t i = 0; i < indexed_columns.size(); ++i) {
+				if (bound_column_ref_expr.binding.column_index == indexed_columns[i]) {
+					bound_column_ref_expr.binding.column_index = index_column_to_proj_pos[i];
+					break;
+				}
+			}
+		});
 	}
 
 	// The indexes of the filters match input.column_indexes, which are: i -> column_index.
 	// Reuse the index <-> projection mappings from index expr rebinding
-	vector<vector<unique_ptr<Expression>>> filters;
+	vector<vector<unique_ptr<Expression>>> index_filters;
 
 	for (idx_t i = 0; i < index_column_to_proj_pos.size(); ++i) {
 		auto column_def = &column_list.GetColumn(LogicalIndex(indexed_columns[i]));
@@ -568,18 +576,21 @@ bool TryScanIndex(ART &art, const ColumnList &column_list, TableFunctionInitInpu
 			auto filter = &maybe_filter->second;
 			auto filter_expressions = ExtractFilterExpressions(*column_def, *filter, index_column_to_proj_pos[i]);
 
-			filters.push_back(std::move(filter_expressions));
+			index_filters.push_back(std::move(filter_expressions));
 		}
 	}
 
-	// Filters must match ART columns 1:1
-	if (filters.size() != indexed_columns.size() || filters.empty()) {
+	// Index filters must:
+	// - Match ART column count 1:1
+	// - Match filter expression set 1:1 (there may be filters on non-indexed columns, bail out if so)
+	if (index_filters.size() != indexed_columns.size() || filter_set.filters.size() != index_filters.size() ||
+	    index_filters.empty()) {
 		return false;
 	}
 
 	// Do a compound scan if we have filter exprs bound for several columns
-	if (filters.size() > 1) {
-		auto scan_state = art.TryInitializeCompoundKeyScan(index_exprs, filters);
+	if (index_filters.size() > 1) {
+		auto scan_state = art.TryInitializeCompoundKeyScan(index_exprs, index_filters);
 		if (!scan_state) {
 			return false;
 		}
@@ -591,7 +602,7 @@ bool TryScanIndex(ART &art, const ColumnList &column_list, TableFunctionInitInpu
 	}
 	// Original single column index scan
 	else {
-		for (const auto &filter_expr : filters[0]) {
+		for (const auto &filter_expr : index_filters[0]) {
 			auto scan_state = art.TryInitializeScan(*index_exprs[0], *filter_expr);
 			if (!scan_state) {
 				return false;

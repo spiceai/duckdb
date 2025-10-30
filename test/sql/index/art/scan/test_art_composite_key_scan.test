@@ -1,6 +1,6 @@
-# name: test/sql/index/art/issues/test_art_view_col_binding.test
+# name: test/sql/index/art/scan/test_art_composite_key_scan.test
 # description: Test Index Scan push down against views with reordered projections (issue #17290)
-# group: [issues]
+# group: [scan]
 
 statement ok
 create or replace table test as (
