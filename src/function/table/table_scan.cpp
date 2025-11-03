@@ -493,7 +493,7 @@ bool TryScanIndex(ART &art, const ColumnList &column_list, TableFunctionInitInpu
 		index_exprs.push_back(expr->Copy());
 	}
 
-	// If this is a view, the column IDs are relative to the view projection
+	// If this is a view, the column IDs are (may be?) relative to the view projection
 	auto &indexed_columns = art.GetColumnIds();
 
 	// Allow composite ART scans
@@ -501,8 +501,30 @@ bool TryScanIndex(ART &art, const ColumnList &column_list, TableFunctionInitInpu
 		return false;
 	}
 
-	// ...only if each expression has a single column reference, and
-	// that single column reference positionally matches that of the index (this is guaranteed? paranoid?)
+	// Resolve bound column references in the index_expr against the current input projection
+	bool rewrite_index_exprs = false;
+	vector<column_t> index_column_to_input_pos;
+	index_column_to_input_pos.resize(indexed_columns.size(), std::numeric_limits<idx_t>::max());
+
+	// Associate indexed columns to input columns
+	for (idx_t i = 0; i < indexed_columns.size(); ++i) {
+		for (idx_t j = 0; j < input.column_ids.size(); ++j) {
+			if (indexed_columns[i] == input.column_ids[j]) {
+				rewrite_index_exprs = i != j;
+				index_column_to_input_pos.at(i) = j;
+			}
+		}
+	}
+
+	// Make sure that all indexed_columns were bound, or bail out
+	for (auto col : index_column_to_input_pos) {
+		if (col == std::numeric_limits<idx_t>::max()) {
+			return false;
+		}
+	}
+
+	// Allow scan only if index expressions reference ONE column each, and that column
+	// is associated with an indexed_column
 	// NOTE: We do not push down multi-column filters, e.g., 42 = a + b.
 	for (idx_t i = 0; i < index_exprs.size(); ++i) {
 		unordered_set<column_t> referenced_columns;
@@ -521,70 +543,57 @@ bool TryScanIndex(ART &art, const ColumnList &column_list, TableFunctionInitInpu
 		}
 
 		auto referenced_column = *referenced_columns.begin();
+
+		// The column for this position matches the indexed_column ID for this position directly
 		auto direct_match = referenced_column == indexed_columns[i];
+
+		// We should know if there is a different mapping for this reference.
+		// If there is not, it won't match, so it is not worth trying.
+		if (!direct_match && !rewrite_index_exprs) {
+			return false;
+		}
+
+		auto remapped_column_id = index_column_to_input_pos[referenced_column];
 		auto remapped_match =
-		    input.column_ids.size() > referenced_column && input.column_ids[referenced_column] == indexed_columns[i];
+		    input.column_ids.size() > remapped_column_id && input.column_ids[remapped_column_id] == indexed_columns[i];
 
 		if (!(direct_match || remapped_match)) {
 			return false;
 		}
 	}
 
-	// Resolve bound column references in the index_expr against the current input projection
-	vector<column_t> index_column_to_proj_pos;
-	index_column_to_proj_pos.resize(indexed_columns.size(), std::numeric_limits<idx_t>::max());
-
-	bool found_index_column_in_input = false;
-
-	// Associate indexed columns to input columns
-	for (idx_t i = 0; i < indexed_columns.size(); ++i) {
-		for (idx_t j = 0; j < input.column_ids.size(); ++j) {
-			if (indexed_columns[i] == input.column_ids[j]) {
-				index_column_to_proj_pos.at(i) = j;
-				found_index_column_in_input = true;
-			}
-		}
-	}
-
-	if (!found_index_column_in_input) {
-		return false;
-	}
-
-	for (auto col : index_column_to_proj_pos) {
-		if (col == std::numeric_limits<idx_t>::max()) {
-			return false;
-		}
-	}
-
-	// Update the bound column refs within all index_exprs
-	for (auto &index_expr : index_exprs) {
-		ExpressionIterator::EnumerateExpression(index_expr, [&](Expression &expr) {
-			if (expr.GetExpressionClass() != ExpressionClass::BOUND_COLUMN_REF) {
-				return;
-			}
-
-			auto &bound_column_ref_expr = expr.Cast<BoundColumnRefExpression>();
-
-			// If the bound column references an indexed column, update it
-			for (idx_t i = 0; i < indexed_columns.size(); ++i) {
-				if (bound_column_ref_expr.binding.column_index == indexed_columns[i]) {
-					bound_column_ref_expr.binding.column_index = index_column_to_proj_pos[i];
-					break;
+	// If the position of the indexed_columns differs from the order of the input, remap the index expressions
+	if (rewrite_index_exprs) {
+		for (auto &index_expr : index_exprs) {
+			ExpressionIterator::EnumerateExpression(index_expr, [&](Expression &expr) {
+				if (expr.GetExpressionClass() != ExpressionClass::BOUND_COLUMN_REF) {
+					return;
 				}
-			}
-		});
+
+				auto &bound_column_ref_expr = expr.Cast<BoundColumnRefExpression>();
+
+				// If the bound column references an indexed column, update it
+				for (idx_t i = 0; i < indexed_columns.size(); ++i) {
+					auto remapped_index = index_column_to_input_pos[bound_column_ref_expr.binding.column_index];
+					if (input.column_ids[remapped_index] == indexed_columns[i]) {
+						bound_column_ref_expr.binding.column_index = index_column_to_input_pos[i];
+						break;
+					}
+				}
+			});
+		}
 	}
 
 	// The indexes of the filters match input.column_indexes, which are: i -> column_index.
-	// Reuse the index <-> projection mappings from index expr rebinding
+	// Reuse the index <-> projection mappings from index expr rebinding (which are canonical even if not rewriting)
 	vector<vector<unique_ptr<Expression>>> index_filters;
 
-	for (idx_t i = 0; i < index_column_to_proj_pos.size(); ++i) {
+	for (idx_t i = 0; i < index_column_to_input_pos.size(); ++i) {
 		auto column_def = &column_list.GetColumn(LogicalIndex(indexed_columns[i]));
-		auto maybe_filter = filter_set.filters.find(index_column_to_proj_pos[i]);
+		auto maybe_filter = filter_set.filters.find(index_column_to_input_pos[i]);
 		if (maybe_filter != filter_set.filters.end()) {
 			auto filter = &maybe_filter->second;
-			auto filter_expressions = ExtractFilterExpressions(*column_def, *filter, index_column_to_proj_pos[i]);
+			auto filter_expressions = ExtractFilterExpressions(*column_def, *filter, index_column_to_input_pos[i]);
 
 			index_filters.push_back(std::move(filter_expressions));
 		}
