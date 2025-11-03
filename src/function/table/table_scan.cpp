@@ -493,6 +493,7 @@ bool TryScanIndex(ART &art, const ColumnList &column_list, TableFunctionInitInpu
 		index_exprs.push_back(expr->Copy());
 	}
 
+	// If this is a view, the column IDs are relative to the view projection
 	auto &indexed_columns = art.GetColumnIds();
 
 	// Allow composite ART scans
@@ -515,7 +516,16 @@ bool TryScanIndex(ART &art, const ColumnList &column_list, TableFunctionInitInpu
 			}
 		});
 
-		if (referenced_columns.size() != 1 || *referenced_columns.begin() != indexed_columns[i]) {
+		if (referenced_columns.size() != 1) {
+			return false;
+		}
+
+		auto referenced_column = *referenced_columns.begin();
+		auto direct_match = referenced_column == indexed_columns[i];
+		auto remapped_match =
+		    input.column_ids.size() > referenced_column && input.column_ids[referenced_column] == indexed_columns[i];
+
+		if (!(direct_match || remapped_match)) {
 			return false;
 		}
 	}
