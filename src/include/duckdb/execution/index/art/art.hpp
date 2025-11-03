@@ -11,6 +11,7 @@
 #include "duckdb/execution/index/bound_index.hpp"
 #include "duckdb/execution/index/art/node.hpp"
 #include "duckdb/common/array.hpp"
+#include "duckdb/planner/expression.hpp"
 
 namespace duckdb {
 
@@ -24,6 +25,7 @@ class ARTKeySection;
 class FixedSizeAllocator;
 
 struct ARTIndexScanState;
+struct ARTIndexCompoundKeyScanState;
 
 class ART : public BoundIndex {
 public:
@@ -70,9 +72,19 @@ public:
 public:
 	//! Try to initialize a scan on the ART with the given expression and filter.
 	unique_ptr<IndexScanState> TryInitializeScan(const Expression &expr, const Expression &filter_expr);
+
+	//! Try to initialize a compound key scan on the ART, using the given index expr -> filter expr mappings.
+	//! Supports equality comparisons only.
+	unique_ptr<IndexScanState> TryInitializeCompoundKeyScan(const vector<unique_ptr<Expression>> &index_exprs,
+	                                                        vector<vector<unique_ptr<Expression>>> &exprs);
+
 	//! Perform a lookup on the ART, fetching up to max_count row IDs.
 	//! If all row IDs were fetched, it return true, else false.
 	bool Scan(IndexScanState &state, idx_t max_count, set<row_t> &row_ids);
+
+	//! Like `ART::Scan`, but uses `ARTIndexCompoundKeyScanState` to concatenate multiple
+	//! values for equality comparisons only.
+	bool CompoundKeyScan(IndexScanState &state, idx_t max_count, set<row_t> &row_ids);
 
 	//! Appends data to the locked index.
 	ErrorData Append(IndexLock &l, DataChunk &chunk, Vector &row_ids) override;
