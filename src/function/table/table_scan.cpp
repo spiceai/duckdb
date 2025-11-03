@@ -512,6 +512,7 @@ bool TryScanIndex(ART &art, const ColumnList &column_list, TableFunctionInitInpu
 			if (indexed_columns[i] == input.column_ids[j]) {
 				rewrite_index_exprs = i != j;
 				index_column_to_input_pos.at(i) = j;
+				break;
 			}
 		}
 	}
@@ -542,10 +543,14 @@ bool TryScanIndex(ART &art, const ColumnList &column_list, TableFunctionInitInpu
 			return false;
 		}
 
-		auto referenced_column = *referenced_columns.begin();
+		// Make sure the column reference can be looked up
+		auto ref_col_idx = *referenced_columns.begin();
+		if (ref_col_idx >= index_column_to_input_pos.size() || ref_col_idx >= input.column_ids.size()) {
+			return false;
+		}
 
 		// The column for this position matches the indexed_column ID for this position directly
-		auto direct_match = referenced_column == indexed_columns[i];
+		auto direct_match = input.column_ids[ref_col_idx] == indexed_columns[i];
 
 		// We should know if there is a different mapping for this reference.
 		// If there is not, it won't match, so it is not worth trying.
@@ -553,9 +558,9 @@ bool TryScanIndex(ART &art, const ColumnList &column_list, TableFunctionInitInpu
 			return false;
 		}
 
-		auto remapped_column_id = index_column_to_input_pos[referenced_column];
-		auto remapped_match =
-		    input.column_ids.size() > remapped_column_id && input.column_ids[remapped_column_id] == indexed_columns[i];
+		auto remapped_cid_position = index_column_to_input_pos[ref_col_idx];
+		auto remapped_match = remapped_cid_position < input.column_ids.size() &&
+		                      input.column_ids[remapped_cid_position] == indexed_columns[i];
 
 		if (!(direct_match || remapped_match)) {
 			return false;
