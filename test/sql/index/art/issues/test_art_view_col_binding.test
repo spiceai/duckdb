@@ -46,3 +46,23 @@ select z, y, x from test_view where upper(x) = '526';
 
 statement ok
 drop index test_upper_x;
+
+statement ok
+create or replace table other_test_table (
+    name VARCHAR NOT NULL,
+    id BIGINT NOT NULL,
+    age INTEGER,
+    status VARCHAR NOT NULL
+);
+
+# test simple permutation of initial table projection
+statement ok
+CREATE INDEX index_id_other_test_table ON other_test_table (id);
+
+statement ok
+CREATE OR REPLACE VIEW ott_view AS SELECT * FROM other_test_table;
+
+query II
+explain analyze select * from ott_view where id = 1;
+----
+analyzed_plan	<REGEX>:.*Index Scan.*
