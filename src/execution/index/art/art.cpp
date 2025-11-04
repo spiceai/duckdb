@@ -181,7 +181,7 @@ unique_ptr<IndexScanState> ART::TryInitializeCompoundKeyScan(const vector<unique
 		}
 	}
 
-	return compound_scan_state;
+	return std::move(compound_scan_state);
 }
 
 unique_ptr<IndexScanState> ART::TryInitializeScan(const Expression &expr, const Expression &filter_expr) {
