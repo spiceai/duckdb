@@ -432,6 +432,16 @@ duckdb_state Ingest(duckdb_connection connection, const char *table_name, struct
 
 duckdb_state duckdb_arrow_scan(duckdb_connection connection, const char *table_name, duckdb_arrow_stream arrow) {
 	auto stream = reinterpret_cast<ArrowArrayStream *>(arrow);
+
+	ArrowSchema schema;
+	if (stream->get_schema(stream, &schema) == DuckDBError) {
+		return DuckDBError;
+	}
+
+	if (schema.release) {
+		schema.release(&schema);
+	}
+
 	return arrow_array_stream_wrapper::Ingest(connection, table_name, stream);
 }
 
