@@ -233,4 +233,21 @@ void Storage::VerifyBlockHeaderSize(const idx_t block_header_size) {
 	}
 }
 
+void Storage::VerifyRowGroupSize(const idx_t row_group_size) {
+	if (row_group_size == 0) {
+		throw InvalidInputException("Invalid row group size: %llu - row group size must be bigger than 0",
+		                            row_group_size);
+	}
+	if (row_group_size % STANDARD_VECTOR_SIZE != 0) {
+		throw InvalidInputException(
+		    "Invalid row group size: %llu - row group size must be divisible by the vector size (%llu)",
+		    row_group_size, STANDARD_VECTOR_SIZE);
+	}
+	if (row_group_size > MAX_ROW_GROUP_SIZE) {
+		throw InvalidInputException(
+		    "Invalid row group size: %llu - row group size must not exceed the maximum of %llu",
+		    row_group_size, MAX_ROW_GROUP_SIZE);
+	}
+}
+
 } // namespace duckdb

@@ -89,6 +89,7 @@ static const ConfigurationOption internal_options[] = {
     DUCKDB_SETTING_CALLBACK(DebugVerifyVectorSetting),
     DUCKDB_SETTING_CALLBACK(DebugWindowModeSetting),
     DUCKDB_GLOBAL(DefaultBlockSizeSetting),
+    DUCKDB_GLOBAL(DefaultRowGroupSizeSetting),
     DUCKDB_SETTING_CALLBACK(DefaultCollationSetting),
     DUCKDB_SETTING_CALLBACK(DefaultNullOrderSetting),
     DUCKDB_SETTING_CALLBACK(DefaultOrderSetting),

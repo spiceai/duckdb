@@ -368,6 +368,17 @@ struct DefaultBlockSizeSetting {
 	static Value GetSetting(const ClientContext &context);
 };
 
+struct DefaultRowGroupSizeSetting {
+	using RETURN_TYPE = idx_t;
+	static constexpr const char *Name = "default_row_group_size";
+	static constexpr const char *Description =
+	    "The default row group size for new duckdb database files (new as-in, they do not yet exist).";
+	static constexpr const char *InputType = "UBIGINT";
+	static void SetGlobal(DatabaseInstance *db, DBConfig &config, const Value &parameter);
+	static void ResetGlobal(DatabaseInstance *db, DBConfig &config);
+	static Value GetSetting(const ClientContext &context);
+};
+
 struct DefaultCollationSetting {
 	using RETURN_TYPE = string;
 	static constexpr const char *Name = "default_collation";

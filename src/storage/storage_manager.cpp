@@ -214,19 +214,14 @@ void SingleFileStorageManager::LoadDatabase(QueryContext context) {
 		options.encryption_options.user_key = std::move(storage_options.user_key);
 	}
 
-	idx_t row_group_size = DEFAULT_ROW_GROUP_SIZE;
+	idx_t row_group_size;
 	if (storage_options.row_group_size.IsValid()) {
 		row_group_size = storage_options.row_group_size.GetIndex();
-		if (row_group_size == 0) {
-			throw NotImplementedException("Invalid row group size: %llu - row group size must be bigger than 0",
-			                              row_group_size);
-		}
-		if (row_group_size % STANDARD_VECTOR_SIZE != 0) {
-			throw NotImplementedException(
-			    "Invalid row group size: %llu - row group size must be divisible by the vector size (%llu)",
-			    row_group_size, STANDARD_VECTOR_SIZE);
-		}
+	} else {
+		row_group_size = config.options.default_row_group_size;
 	}
+	Storage::VerifyRowGroupSize(row_group_size);
+	
 	// Check if the database file already exists.
 	// Note: a file can also exist if there was a ROLLBACK on a previous transaction creating that file.
 	if (!read_only && !fs.FileExists(path)) {

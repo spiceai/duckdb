@@ -201,6 +201,8 @@ struct DBConfigOptions {
 	idx_t default_block_alloc_size = DEFAULT_BLOCK_ALLOC_SIZE;
 	//! The default block header size for new duckdb database files.
 	idx_t default_block_header_size = DUCKDB_BLOCK_HEADER_STORAGE_SIZE;
+	//! The default row group size for new duckdb database files (new as-in, they do not yet exist).
+	idx_t default_row_group_size = DEFAULT_ROW_GROUP_SIZE;
 	//!  Whether or not to abort if a serialization exception is thrown during WAL playback (when reading truncated WAL)
 	bool abort_on_wal_failure = false;
 	//! Paths that are explicitly allowed, even if enable_external_access is false

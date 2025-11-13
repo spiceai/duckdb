@@ -428,6 +428,24 @@ Value DefaultBlockSizeSetting::GetSetting(const ClientContext &context) {
 }
 
 //===----------------------------------------------------------------------===//
+// Default Row Group Size
+//===----------------------------------------------------------------------===//
+void DefaultRowGroupSizeSetting::SetGlobal(DatabaseInstance *db, DBConfig &config, const Value &input) {
+	auto row_group_size = input.GetValue<uint64_t>();
+	Storage::VerifyRowGroupSize(row_group_size);
+	config.options.default_row_group_size = row_group_size;
+}
+
+void DefaultRowGroupSizeSetting::ResetGlobal(DatabaseInstance *db, DBConfig &config) {
+	config.options.default_row_group_size = DBConfigOptions().default_row_group_size;
+}
+
+Value DefaultRowGroupSizeSetting::GetSetting(const ClientContext &context) {
+	auto &config = DBConfig::GetConfig(context);
+	return Value::UBIGINT(config.options.default_row_group_size);
+}
+
+//===----------------------------------------------------------------------===//
 // Default Collation
 //===----------------------------------------------------------------------===//
 void DefaultCollationSetting::OnSet(SettingCallbackInfo &info, Value &input) {
