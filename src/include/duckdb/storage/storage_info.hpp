@@ -20,7 +20,7 @@ struct FileHandle;
 class QueryContext;
 
 //! The standard row group size
-#define DEFAULT_ROW_GROUP_SIZE 122880ULL
+#define DEFAULT_ROW_GROUP_SIZE 16384ULL //122880ULL
 //! The definition of an invalid block
 #define INVALID_BLOCK (-1)
 //! The maximum block id is 2^62
