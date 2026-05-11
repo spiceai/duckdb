@@ -583,7 +583,7 @@ bool TryScanIndex(ART &art, IndexEntry &entry, const ColumnList &column_list, Ta
 	for (idx_t i = 0; i < indexed_columns.size(); ++i) {
 		for (idx_t j = 0; j < input.column_ids.size(); ++j) {
 			if (indexed_columns[i] == input.column_ids[j]) {
-				rewrite_index_exprs = i != j;
+				rewrite_index_exprs = rewrite_index_exprs || i != j;
 				index_column_to_input_pos.at(i) = j;
 				break;
 			}
