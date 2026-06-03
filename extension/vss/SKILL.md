@@ -25,16 +25,23 @@ the bundled DuckDB** and auto-loaded at database open.
 extension/vss/
 ├── SKILL.md          # this file
 ├── vss_config.py     # package_build.py per-extension contract (source_files + include_directories)
-└── upstream/         # git submodule -> github.com/duckdb/duckdb-vss, pinned to an ABI-matched commit
-    └── src/{vss_extension.cpp, hnsw/*.cpp, include/{vss_extension.hpp,hnsw,usearch,fp16,simsimd}}
+└── src/              # VENDORED copy of duckdb-vss src/ at the ABI-matched commit (committed files, NOT a submodule)
+    ├── vss_extension.cpp
+    ├── hnsw/*.cpp
+    └── include/{vss_extension.hpp, hnsw, usearch, fp16, simsimd, aggregate_function_matcher.hpp}
 ```
 
 `vss_config.py` is the same mechanism in-tree extensions (parquet/json/icu) use: it lists
-`source_files` (all `upstream/src/**/*.cpp`) and `include_directories` (`upstream/src/include`,
-which recursively also pulls the header-only usearch/fp16/simsimd headers). `usearch`/`fp16`/
-`simsimd` ship inside duckdb-vss as plain headers — no nested third-party submodules to manage
-(duckdb-vss's own `duckdb`/`extension-ci-tools` submodules are NOT needed and must stay
-uninitialized).
+`source_files` (all `src/**/*.cpp`) and `include_directories` (`src/include`, which recursively
+also pulls the header-only usearch/fp16/simsimd headers).
+
+**Why vendored, not a git submodule:** duckdb-vss has its own nested `duckdb` and
+`extension-ci-tools` submodules. Cargo recursively checks out *all* submodules of the duckdb-rs
+git dependency, so a vss *submodule* drags in a full nested `duckdb` checkout — whose deeply-nested
+Swift example paths exceed Windows' `MAX_PATH` (260 chars) and break the Windows build
+(`path too long ... class=Filesystem`). Committing the source directly (no submodule) has nothing
+for Cargo to recurse into. usearch/fp16/simsimd ship inside duckdb-vss as plain headers, so the
+vendored copy is fully self-contained.
 
 ## The three-repo picture
 
@@ -61,12 +68,16 @@ A change here is consumed by two downstream repos:
    `.github/config/extensions/vss.cmake` — its `GIT_TAG <sha>` is the duckdb-vss commit DuckDB's
    own CI links against for that version. Use exactly that commit.
 
-2. **Bump the submodule** (in this repo, on a branch off the new `spiceai-<version>`):
+2. **Re-vendor the source** (in this repo, on a branch off the new `spiceai-<version>`). Clone
+   duckdb-vss at the ABI-matched commit somewhere temporary (do NOT `--recursive`; we don't want
+   its nested submodules), then replace `extension/vss/src` with its `src/`:
    ```bash
-   git -C extension/vss/upstream fetch origin
-   git -C extension/vss/upstream checkout <GIT_TAG-from-step-1>
-   git add extension/vss/upstream
+   git clone https://github.com/duckdb/duckdb-vss /tmp/duckdb-vss && \
+     git -C /tmp/duckdb-vss checkout <GIT_TAG-from-step-1>
+   rm -rf extension/vss/src && cp -R /tmp/duckdb-vss/src extension/vss/src
+   git add -A extension/vss/src
    ```
+   (Keep it a plain copy — never re-introduce a submodule here; see "Why vendored" above.)
 
 3. **Audit duckdb-vss for structural / API drift** at the new commit:
    - `VssExtension` class name + `src/include/vss_extension.hpp` location unchanged (the
@@ -90,8 +101,8 @@ A change here is consumed by two downstream repos:
 4. **Regenerate + validate in duckdb-rs** (after this repo's commit is referenced by the
    `duckdb-sources` submodule there):
    ```bash
-   git submodule update --init --recursive crates/libduckdb-sys/duckdb-sources   # incl. extension/vss/upstream
-   python3 crates/libduckdb-sys/update_sources.py                                # regenerates duckdb.tar.gz + manifest.json
+   git submodule update --init crates/libduckdb-sys/duckdb-sources   # vss is vendored files; no --recursive needed
+   python3 crates/libduckdb-sys/update_sources.py                    # regenerates duckdb.tar.gz + manifest.json
    cargo build -p libduckdb-sys --features bundled                               # compile check
    nm target/debug/build/libduckdb-sys-*/out/libduckdb.a | grep -i 'VssExtension\|HNSWModule'   # symbols present
    ```
@@ -101,8 +112,9 @@ A change here is consumed by two downstream repos:
 
 ## Gotchas
 
-- **Do not initialize duckdb-vss's own submodules** (`upstream/duckdb`, `upstream/extension-ci-tools`).
-  Only `upstream/src` is needed; the vendored DuckDB headers come from this repo's tree.
+- **Keep vss vendored as files — never a submodule.** duckdb-vss's nested `duckdb`/`extension-ci-tools`
+  submodules, pulled in by Cargo's recursive submodule checkout of the duckdb-rs git dep, break the
+  Windows build via `MAX_PATH` (see "Why vendored" above). A submodule here regresses Windows.
 - The cc build compiles all sources with one flag set, so usearch defines are global; that's
   fine (only usearch headers read them).
 - On the spiceai side, patching duckdb to a local/fork source requires patching BOTH
