@@ -1,3 +1,0 @@
-[submodule "extension/vss/upstream"]
-	path = extension/vss/upstream
-	url = https://github.com/duckdb/duckdb-vss

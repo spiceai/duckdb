@@ -1,17 +1,23 @@
 import os
 
 # VSS (vector similarity search) extension, vendored from github.com/duckdb/duckdb-vss
-# into extension/vss/upstream. This mirrors the per-extension `*_config.py` contract used
-# by scripts/package_build.py for in-tree extensions (parquet/json/icu): paths are relative
-# to the DuckDB source root, which package_build.py chdirs into before importing this module.
+# (commit b833341c) into extension/vss/src. The source is committed directly rather than pulled
+# via a git submodule: duckdb-vss has its own nested `duckdb`/`extension-ci-tools` submodules,
+# and because Cargo recursively checks out submodules of the duckdb-rs git dependency, that nested
+# duckdb checkout exceeded Windows' MAX_PATH and broke the Windows build. A vendored copy has no
+# submodules to recurse into.
 #
-# usearch, fp16, and simsimd are header-only and live under upstream/src/include, so a single
-# include directory covers both the recursive header copy (amalgamation.list_includes_files)
-# and the compile-time include path (the sources #include "usearch/...", "hnsw/...", "fp16/...").
-prefix = os.path.join('extension', 'vss', 'upstream', 'src')
+# This mirrors the per-extension `*_config.py` contract used by scripts/package_build.py for
+# in-tree extensions (parquet/json/icu): paths are relative to the DuckDB source root, which
+# package_build.py chdirs into before importing this module.
+#
+# usearch, fp16, and simsimd are header-only and live under src/include, so a single include
+# directory covers both the recursive header copy (amalgamation.list_includes_files) and the
+# compile-time include path (the sources #include "usearch/...", "hnsw/...", "fp16/...").
+prefix = os.path.join('extension', 'vss', 'src')
 
 include_directories = [
-    os.path.join('extension', 'vss', 'upstream', 'src', 'include'),
+    os.path.join('extension', 'vss', 'src', 'include'),
 ]
 
 
