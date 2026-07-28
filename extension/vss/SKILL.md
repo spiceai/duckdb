@@ -79,7 +79,18 @@ A change here is consumed by two downstream repos:
    ```
    (Keep it a plain copy — never re-introduce a submodule here; see "Why vendored" above.)
 
-3. **Audit duckdb-vss for structural / API drift** at the new commit:
+3. **Apply DuckDB's own vss patches.** If `vss.cmake` carries `APPLY_PATCHES`, DuckDB's CI
+   patches the extension after checkout, and the vendored copy must match. Apply every patch in
+   `.github/patches/extensions/vss/` (in the new DuckDB tree) to the vendored source:
+   ```bash
+   git apply -p1 --directory=extension/vss .github/patches/extensions/vss/*.patch
+   ```
+   These patches usually adapt the extension to DuckDB API changes (e.g. v1.5.5's
+   `0001-reset-storage.patch` renames `CommitDrop` -> `ResetStorage` to match the new pure-virtual
+   `BoundIndex::ResetStorage`) — without them the vendored copy fails to compile against the new
+   DuckDB. No `APPLY_PATCHES` in `vss.cmake` means no patch directory and this step is a no-op.
+
+4. **Audit duckdb-vss for structural / API drift** at the new commit:
    - `VssExtension` class name + `src/include/vss_extension.hpp` location unchanged (the
      generated loader does `#include "vss_extension.hpp"` and
      `db.LoadStaticExtension<VssExtension>()`). If renamed, the loader codegen (camel-cased
@@ -98,7 +109,7 @@ A change here is consumed by two downstream repos:
      enum. If DuckDB changes the static-extension API, the `package_build.py` loader template
      (`extension/generated_extension_loader.cpp.in`) and the duckdb-rs codegen must follow.
 
-4. **Regenerate + validate in duckdb-rs** (after this repo's commit is referenced by the
+5. **Regenerate + validate in duckdb-rs** (after this repo's commit is referenced by the
    `duckdb-sources` submodule there):
    ```bash
    git submodule update --init crates/libduckdb-sys/duckdb-sources   # vss is vendored files; no --recursive needed
