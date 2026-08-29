@@ -19,19 +19,6 @@
 
 #if defined(GENERATED_EXTENSION_HEADERS) && GENERATED_EXTENSION_HEADERS
 
-#if DUCKDB_EXTENSION_CORE_FUNCTIONS_LINKED
-#include "core_functions_extension.hpp"
-#endif
-#if DUCKDB_EXTENSION_PARQUET_LINKED
-#include "parquet_extension.hpp"
-#endif
-#if DUCKDB_EXTENSION_JSON_LINKED
-#include "json_extension.hpp"
-#endif
-#if DUCKDB_EXTENSION_ICU_LINKED
-#include "icu_extension.hpp"
-#endif
-
 namespace duckdb {
 
 bool TryLoadLinkedExtension(DuckDB &db, const string &extension) {
