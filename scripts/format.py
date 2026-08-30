@@ -113,6 +113,7 @@ ignored_directories = [
     os.path.join('extension', 'tpcds', 'dsdgen'),
     os.path.join('extension', 'jemalloc', 'jemalloc'),
     os.path.join('extension', 'icu', 'third_party'),
+    os.path.join('extension', 'vss', 'src'),
     os.path.join('tools', 'nodejs', 'src', 'duckdb'),
 ]
 format_all = False
