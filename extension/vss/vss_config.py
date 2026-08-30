@@ -22,10 +22,7 @@ include_directories = [
 
 def _cpp_files(root):
     return [
-        os.path.join(dirpath, f)
-        for dirpath, _, filenames in os.walk(root)
-        for f in filenames
-        if f.endswith('.cpp')
+        os.path.join(dirpath, f) for dirpath, _, filenames in os.walk(root) for f in filenames if f.endswith('.cpp')
     ]
 
 

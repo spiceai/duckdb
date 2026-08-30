@@ -58,7 +58,7 @@ bool TryLoadLinkedExtension(DuckDB &db, const string &extension) {
 vector<string> LinkedExtensions() {
 	return {
 #if DUCKDB_EXTENSION_VSS_LINKED
-	    "vss",
+		"vss",
 #endif
 	};
 }
