@@ -29,7 +29,7 @@ on:
       - '!.github/config/extensions/httpfs.cmake'
   merge_group:
   pull_request:
-    types: [opened, reopened, ready_for_review, converted_to_draft]
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
     paths-ignore:
       - '**.md'
       - 'test/configs/**'
@@ -102,7 +102,7 @@ jobs:
         shell: bash
         run: |
           make
-          git clone --branch ${{ env.BASE_BRANCH }} https://github.com/duckdb/duckdb.git --depth=1
+          git clone --branch "$BASE_BRANCH" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" --depth=1 duckdb
           cd duckdb
           make
           cd ..
@@ -223,7 +223,7 @@ jobs:
         shell: bash
         run: |
           make
-          git clone --branch ${{ env.BASE_BRANCH }} https://github.com/duckdb/duckdb.git --depth=1
+          git clone --branch "$BASE_BRANCH" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" --depth=1 duckdb
           cd duckdb
           make
           cd ..
@@ -300,7 +300,7 @@ jobs:
         shell: bash
         run: |
           make
-          git clone --branch ${{ env.BASE_BRANCH }} https://github.com/duckdb/duckdb.git --depth=1
+          git clone --branch "$BASE_BRANCH" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" --depth=1 duckdb
           cd duckdb
           make
           cd ..
@@ -339,7 +339,7 @@ jobs:
         shell: bash
         run: |
           make
-          git clone --branch ${{ env.BASE_BRANCH }} https://github.com/duckdb/duckdb.git --depth=1
+          git clone --branch "$BASE_BRANCH" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" --depth=1 duckdb
           cd duckdb
           make
           cd ..
